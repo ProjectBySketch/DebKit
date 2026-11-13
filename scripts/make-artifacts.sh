@@ -79,8 +79,12 @@ done
 
 # ------------------------------------------------------ the flashable bundle --
 # Same shape as an AOSP *-img-*.zip: unzip and `fastboot flash` each image.
-( cd "$DIST" && zip -q -r "debkit-$ARCH-$VARIANT.zip" ./*.img )
-log "flashable bundle: debkit-$ARCH-$VARIANT.zip"
+if command -v zip >/dev/null 2>&1; then
+  ( cd "$DIST" && zip -q -r "debkit-$ARCH-$VARIANT.zip" ./*.img )
+  log "flashable bundle: debkit-$ARCH-$VARIANT.zip"
+else
+  log "warning: zip missing, no flashable bundle (sudo apt install zip)"
+fi
 
 # ------------------------------------------------------------- the live ISO --
 # amd64 only, and only when the ISO tools are installed. This is a live medium
@@ -95,7 +99,9 @@ if [ "$ARCH" = "amd64" ]; then
       cp -f "$DIST/kernel" "$ISO_ROOT/boot/kernel"
       cp -f "$DIST/ramdisk.img" "$ISO_ROOT/boot/initrd.img"
       cp -f "$DIST/system.img" "$ISO_ROOT/debkit/system.img"
-      [ -f "$DIST/system_ext.img" ] && cp -f "$DIST/system_ext.img" "$ISO_ROOT/debkit/system_ext.img"
+      if [ -f "$DIST/system_ext.img" ]; then
+        cp -f "$DIST/system_ext.img" "$ISO_ROOT/debkit/system_ext.img"
+      fi
 
       cat > "$ISO_ROOT/boot/grub/grub.cfg" <<'EOF'
 set timeout=5
