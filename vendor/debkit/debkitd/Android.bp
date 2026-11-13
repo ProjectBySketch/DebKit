@@ -1,0 +1,36 @@
+// DebKit daemon and CLI.
+//
+// One binary, three entry points (see main.cpp):
+//   debkitd serve   - the daemon init starts at boot, listening on a unix socket
+//   deb <verb>      - the same binary under its second name, the CLI
+//   debkitd <verb>  - direct use, e.g. `su -c 'debkitd install x.deb'`
+//
+// Deliberately dependency-free: bionic, libstdc++ and nothing else, so it builds
+// in any AOSP 16 tree without pulling in libbase or liblog.
+
+cc_binary {
+    name: "debkitd",
+    srcs: [
+        "arch.cpp",
+        "commands.cpp",
+        "daemon.cpp",
+        "main.cpp",
+        "rootfs.cpp",
+        "util.cpp",
+    ],
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Wno-unused-parameter",
+        "-Wno-sign-compare",
+    ],
+    cpp_std: "c++20",
+    system_ext_specific: true,
+    // `deb` is the same binary: a symlink, so it is always executable and there
+    // is only one copy of the code on the image.
+    symlinks: ["deb"],
+    init_rc: ["debkit.rc"],
+    strip: {
+        none: true,
+    },
+}

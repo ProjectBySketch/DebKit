@@ -1,0 +1,88 @@
+name: build
+
+# Builds DebKit on a Linux machine with the AOSP tree and publishes the images,
+# the ISO and the binaries as a release. Nothing is built on GitHub's hosted
+# runners: an AOSP 16 build needs ~400 GiB of disk and hours of CPU, which the
+# hosted machines do not have.
+#
+# Register a self-hosted runner on your build machine with these labels:
+#   ./config.sh --labels self-hosted,linux,aosp
+# and keep the AOSP tree at $AOSP_DIR (default ~/aosp) on it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "Build variant"
+        type: choice
+        options: [userdebug, user]
+        default: userdebug
+      publish:
+        description: "Publish a GitHub release from the artifacts"
+        type: boolean
+        default: false
+      tag:
+        description: "Release tag (blank: debkit-<run number>)"
+        type: string
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: debkit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Sync is its own job because GitHub kills any single job at 6 hours, and
+  # `repo sync` on a cold cache can take most of that on its own.
+  sync:
+    runs-on: [self-hosted, linux, aosp]
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host check
+        run: ./build.sh env
+      - name: Sync AOSP
+        run: ./build.sh sync
+
+  build:
+    needs: sync
+    runs-on: [self-hosted, linux, aosp]
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, amd64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Debian rootfs
+        run: ./build.sh rootfs ${{ matrix.arch }}
+      - name: Build ${{ matrix.arch }}
+        env:
+          VARIANT: ${{ github.event.inputs.variant || 'userdebug' }}
+        run: ./build.sh build ${{ matrix.arch }} "$VARIANT"
+      - name: Collect images, ISO and binaries
+        run: ./scripts/make-artifacts.sh ${{ matrix.arch }} "${{ github.event.inputs.variant || 'userdebug' }}"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: debkit-${{ matrix.arch }}
+          path: dist/
+          retention-days: 14
+
+  release:
+    needs: build
+    if: github.event_name == 'push' || github.event.inputs.publish == 'true'
+    runs-on: [self-hosted, linux, aosp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || format('debkit-{0}', github.run_number) }}
+        run: ./scripts/publish-release.sh "$TAG"
